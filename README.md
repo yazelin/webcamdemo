@@ -117,7 +117,7 @@ python3 tests/smoke_test.py                # 實機冒煙測試(無相機時 SKI
 | 硬體(自動 skip) | `test_hardware_integration.py` | 唯一會開 `/dev/video*` 的檔案;無相機或裝置被占用(EBUSY)時逐項 skip,改動過的設定一律還原 |
 | 冒煙 | `smoke_test.py` | 對實機跑一遍完整流程的獨立腳本,不被 discover 收進上面三層 |
 
-CI(GitHub Actions)在 Linux(Python 3.10/3.12)與 Windows(3.12,有 comtypes 無相機)上跑同一條 `unittest discover` 指令。
+CI(GitHub Actions)在 Linux 與 Windows(皆 Python 3.12;Windows 有 comtypes 無相機)上跑同一條 `unittest discover` 指令。
 
 ## 授權
 

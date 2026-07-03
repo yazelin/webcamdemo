@@ -7,7 +7,7 @@ name = "webcamdemo"
 version = "0.1.0"
 description = "Cross-platform webcam control enumeration and live MJPEG preview (library + CLI + web UI)"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Yaze Lin", email = "yazelin@ching-tech.com" }]
 dependencies = [
