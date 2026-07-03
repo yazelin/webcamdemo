@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "webcamdemo"
+version = "0.1.0"
+description = "Cross-platform webcam control enumeration and live MJPEG preview (library + CLI + web UI)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Yaze Lin", email = "yazelin@ching-tech.com" }]
+dependencies = [
+    # Linux backend is pure stdlib; Windows DirectShow backend needs these.
+    'opencv-python; sys_platform == "win32"',
+    'comtypes; sys_platform == "win32"',
+]
+
+[project.urls]
+Homepage = "https://github.com/yazelin/webcamdemo"
+
+[project.scripts]
+webcamdemo = "webcamdemo.cli:main"
+
+[tool.setuptools]
+packages = ["webcamdemo"]
+
+[tool.setuptools.package-data]
+webcamdemo = ["static/*.html"]

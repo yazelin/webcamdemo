@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>webcamdemo</title>
+<link rel="icon" href="data:,">
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: #14161a; color: #d7dce2;
+  font-family: system-ui, sans-serif; font-size: 14px;
+}
+header { padding: 10px 16px; background: #1b1e24; border-bottom: 1px solid #2a2e36; }
+header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+#banner {
+  display: flex; align-items: center; gap: 12px; margin: 10px 16px 0;
+  padding: 8px 12px; background: #4a1f23; border: 1px solid #8a3038;
+  border-radius: 6px; color: #f2c7cb;
+}
+#banner[hidden] { display: none; }
+#banner span { flex: 1; word-break: break-word; }
+#banner button {
+  background: none; border: 1px solid #8a3038; color: inherit;
+  border-radius: 4px; padding: 2px 8px; cursor: pointer;
+}
+.layout { display: flex; gap: 16px; padding: 16px; align-items: flex-start; flex-wrap: wrap; }
+.left { flex: 1 1 480px; min-width: 320px; }
+.right {
+  flex: 1 1 360px; min-width: 300px; background: #1b1e24;
+  border: 1px solid #2a2e36; border-radius: 8px; padding: 12px;
+}
+#preview { max-width: 100%; background: #000; border-radius: 6px; display: block; min-height: 180px; }
+.row { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+select, button, input[type=number] {
+  background: #23272f; color: #d7dce2; border: 1px solid #3a3f49;
+  border-radius: 4px; padding: 4px 8px; font: inherit;
+}
+button { cursor: pointer; }
+button:hover:enabled { background: #2c313b; }
+button:disabled { cursor: default; opacity: 0.6; }
+a { color: #7ab3f5; }
+.panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.panel-head h2 { margin: 0; font-size: 15px; }
+.ctl {
+  display: grid; grid-template-columns: 150px 1fr; gap: 4px 10px;
+  align-items: center; padding: 6px 0; border-top: 1px solid #262a32;
+}
+.ctl-name { overflow-wrap: anywhere; }
+.ctl-widget { display: flex; align-items: center; gap: 8px; }
+.ctl-widget input[type=range] { flex: 1; min-width: 80px; }
+.ctl-widget input[type=number] { width: 84px; }
+.ctl.inactive { opacity: 0.45; }
+</style>
+</head>
+<body>
+<header><h1>webcamdemo</h1></header>
+<div id="banner" hidden><span id="banner-text"></span><button id="banner-close">Dismiss</button></div>
+<div class="layout">
+  <div class="left">
+    <img id="preview" alt="camera preview">
+    <div class="row">
+      <label for="camera-select">Camera</label>
+      <select id="camera-select"></select>
+    </div>
+    <div class="row">
+      <label for="format-select">Resolution</label>
+      <select id="format-select"></select>
+      <button id="apply-btn">Apply</button>
+      <a id="snapshot-link" href="/snapshot.jpg" download="snapshot.jpg">Snapshot</a>
+    </div>
+  </div>
+  <div class="right">
+    <div class="panel-head">
+      <h2>Controls</h2>
+      <button id="reset-btn">Reset defaults</button>
+    </div>
+    <div id="controls"></div>
+  </div>
+</div>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let currentCam = null;
+let controlsCache = [];
+let inflight = false;
+const pending = new Map();
+const rows = new Map();
+
+function showError(msg) {
+  $("banner-text").textContent = msg;
+  $("banner").hidden = false;
+}
+$("banner-close").onclick = () => { $("banner").hidden = true; };
+
+async function api(path, body) {
+  const opts = body === undefined ? {} : {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  };
+  const res = await fetch(path, opts);
+  return res.json();
+}
+
+function camQS() { return "?cam=" + encodeURIComponent(currentCam); }
+
+async function init() {
+  let cams;
+  try { cams = await api("/api/cameras"); }
+  catch (e) { showError("failed to load cameras: " + e); return; }
+  if (!Array.isArray(cams)) { showError(cams.error || "failed to list cameras"); return; }
+  if (cams.length === 0) { showError("no cameras found"); return; }
+  const sel = $("camera-select");
+  for (const c of cams) {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = c.name + " (" + c.id + ")";
+    sel.appendChild(opt);
+  }
+  sel.onchange = () => selectCamera(sel.value);
+  selectCamera(cams[0].id);
+}
+
+function selectCamera(id) {
+  currentCam = id;
+  pending.clear();  // queued control writes belong to the previous camera
+  $("preview").src = "/stream.mjpg" + camQS();
+  $("snapshot-link").href = "/snapshot.jpg" + camQS();
+  loadFormats();
+  loadControls();
+}
+
+async function loadFormats() {
+  const cam = currentCam;
+  const sel = $("format-select");
+  sel.innerHTML = "";
+  let fmts;
+  try { fmts = await api("/api/formats" + camQS()); }
+  catch (e) { if (cam === currentCam) showError("failed to load formats: " + e); return; }
+  if (cam !== currentCam) return;  // stale response after a camera switch
+  if (!Array.isArray(fmts)) { showError(fmts.error || "failed to list formats"); return; }
+  const seen = new Set();
+  const opts = [];
+  for (const f of fmts) {
+    if (f.fourcc !== "MJPG") continue;
+    for (const fps of f.fps) {
+      const key = f.width + "x" + f.height + "@" + fps;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      opts.push({ w: f.width, h: f.height, fps: fps });
+    }
+  }
+  opts.sort((a, b) => (b.w * b.h - a.w * a.h) || (b.fps - a.fps));
+  for (const o of opts) {
+    const el = document.createElement("option");
+    el.value = JSON.stringify(o);
+    const fpsText = Number.isInteger(o.fps) ? String(o.fps) : o.fps.toFixed(2);
+    el.textContent = o.w + "x" + o.h + " @" + fpsText;
+    if (o.w === 1280 && o.h === 720 && Math.round(o.fps) === 30) el.selected = true;
+    sel.appendChild(el);
+  }
+}
+
+$("apply-btn").onclick = async () => {
+  const sel = $("format-select");
+  if (!sel.value) return;
+  const o = JSON.parse(sel.value);
+  $("apply-btn").disabled = true;
+  try {
+    const res = await api("/api/stream", { cam: currentCam, width: o.w, height: o.h, fps: o.fps });
+    if (!res.ok) showError(res.error || "failed to set stream format");
+  } catch (e) { showError("failed to set stream format: " + e); }
+  $("apply-btn").disabled = false;
+};
+
+async function loadControls() {
+  const cam = currentCam;
+  renderControls([]);  // never leave the previous camera's rows live
+  let ctrls;
+  try { ctrls = await api("/api/controls" + camQS()); }
+  catch (e) { if (cam === currentCam) showError("failed to load controls: " + e); return; }
+  if (cam !== currentCam) return;  // stale response after a camera switch
+  if (!Array.isArray(ctrls)) { showError(ctrls.error || "failed to list controls"); return; }
+  renderControls(ctrls);
+}
+
+function renderControls(ctrls) {
+  controlsCache = ctrls;
+  rows.clear();
+  const box = $("controls");
+  box.innerHTML = "";
+  for (const c of ctrls) {
+    const row = buildRow(c);
+    if (row) { rows.set(c.id, row); box.appendChild(row.root); }
+  }
+}
+
+// Update values and disabled states in place so the focused element
+// (e.g. a slider mid-drag) is never rebuilt or clobbered.
+function updateControls(ctrls) {
+  controlsCache = ctrls;
+  for (const c of ctrls) {
+    const row = rows.get(c.id);
+    if (!row) { renderControls(ctrls); return; }
+    row.apply(c);
+  }
+}
+
+function buildRow(c) {
+  const root = document.createElement("div");
+  root.className = "ctl";
+  const name = document.createElement("div");
+  name.className = "ctl-name";
+  name.textContent = c.name;
+  name.title = c.id;
+  const widget = document.createElement("div");
+  widget.className = "ctl-widget";
+  root.appendChild(name);
+  root.appendChild(widget);
+  let update;
+  if (c.type === "int") {
+    const range = document.createElement("input");
+    range.type = "range";
+    const num = document.createElement("input");
+    num.type = "number";
+    if (c.min != null) { range.min = c.min; num.min = c.min; }
+    if (c.max != null) { range.max = c.max; num.max = c.max; }
+    if (c.step != null) { range.step = c.step; num.step = c.step; }
+    if (c.value != null) { range.value = c.value; num.value = c.value; }
+    range.oninput = () => {
+      num.value = range.value;
+      queueSet(c.id, parseInt(range.value, 10));
+    };
+    num.onchange = () => {
+      const v = parseInt(num.value, 10);
+      if (Number.isNaN(v)) return;
+      range.value = v;
+      queueSet(c.id, v);
+    };
+    widget.appendChild(range);
+    widget.appendChild(num);
+    update = (ctrl) => {
+      if (ctrl.value != null && document.activeElement !== range) range.value = ctrl.value;
+      if (ctrl.value != null && document.activeElement !== num) num.value = ctrl.value;
+      range.disabled = num.disabled = !!ctrl.inactive;
+    };
+  } else if (c.type === "bool") {
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = !!c.value;
+    cb.onchange = () => queueSet(c.id, cb.checked ? 1 : 0);
+    widget.appendChild(cb);
+    update = (ctrl) => {
+      if (document.activeElement !== cb) cb.checked = !!ctrl.value;
+      cb.disabled = !!ctrl.inactive;
+    };
+  } else if (c.type === "menu") {
+    const sel = document.createElement("select");
+    for (const [val, label] of Object.entries(c.menu || {})) {
+      const opt = document.createElement("option");
+      opt.value = val;
+      opt.textContent = label;
+      sel.appendChild(opt);
+    }
+    if (c.value != null) sel.value = String(c.value);
+    sel.onchange = () => queueSet(c.id, parseInt(sel.value, 10));
+    widget.appendChild(sel);
+    update = (ctrl) => {
+      if (ctrl.value != null && document.activeElement !== sel) sel.value = String(ctrl.value);
+      sel.disabled = !!ctrl.inactive;
+    };
+  } else if (c.type === "button") {
+    const btn = document.createElement("button");
+    btn.textContent = "Trigger";
+    btn.onclick = () => queueSet(c.id, 1);
+    widget.appendChild(btn);
+    update = (ctrl) => { btn.disabled = !!ctrl.inactive; };
+  } else {
+    return null;
+  }
+  const apply = (ctrl) => {
+    root.classList.toggle("inactive", !!ctrl.inactive);
+    update(ctrl);
+  };
+  apply(c);
+  return { root, apply };
+}
+
+// One in-flight POST at a time; latest value per control wins (trailing update).
+function queueSet(id, value) {
+  pending.set(id, value);
+  pump();
+}
+
+async function pump() {
+  if (inflight) return;
+  const next = pending.entries().next();
+  if (next.done) return;
+  const [id, value] = next.value;
+  pending.delete(id);
+  inflight = true;
+  const cam = currentCam;
+  try {
+    const res = await api("/api/control", { cam: cam, id: id, value: value });
+    if (cam === currentCam) {  // ignore stale responses after a camera switch
+      if (!res.ok) showError(res.error || "control update failed");
+      if (res.controls) updateControls(res.controls);
+    }
+  } catch (e) {
+    if (cam === currentCam) showError("control update failed: " + e);
+  }
+  inflight = false;
+  pump();
+}
+
+$("reset-btn").onclick = async () => {
+  const btn = $("reset-btn");
+  btn.disabled = true;
+  const cam = currentCam;
+  for (const c of controlsCache.slice()) {
+    if (cam !== currentCam) break;  // camera switched mid-reset
+    if (c.default == null) continue;
+    if (c.type !== "int" && c.type !== "bool" && c.type !== "menu") continue;
+    // Check inactive on the *current* cache, not the loop-start snapshot:
+    // earlier resets (e.g. an auto/manual master) can flip it either way.
+    const live = controlsCache.find((x) => x.id === c.id) || c;
+    if (live.inactive) continue;
+    try {
+      const res = await api("/api/control", { cam: cam, id: c.id, value: c.default });
+      if (cam !== currentCam) break;
+      if (!res.ok) showError(res.error || ("failed to reset " + c.id));
+      if (res.controls) updateControls(res.controls);
+    } catch (e) {
+      showError("reset failed: " + e);
+      break;
+    }
+  }
+  btn.disabled = false;
+};
+
+init();
+</script>
+</body>
+</html>
