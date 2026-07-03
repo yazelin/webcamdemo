@@ -29,7 +29,7 @@ import queue
 import struct
 import threading
 
-from .types import CameraInfo, Control, FrameFormat
+from .model import CameraInfo, Control, FrameFormat
 
 # VideoProcAmpProperty / CameraControlProperty values (strmif.h).
 _PROCAMP = "procamp"

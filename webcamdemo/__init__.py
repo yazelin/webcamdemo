@@ -2,7 +2,7 @@
 
 import sys
 
-from .types import CameraInfo, Control, FrameFormat
+from .model import CameraInfo, Control, FrameFormat
 
 __version__ = "0.1.0"
 

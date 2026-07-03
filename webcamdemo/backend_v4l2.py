@@ -14,7 +14,7 @@ import select
 import threading
 from fractions import Fraction
 
-from .types import CameraInfo, Control, FrameFormat
+from .model import CameraInfo, Control, FrameFormat
 
 
 # ---------------------------------------------------------------------------
