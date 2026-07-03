@@ -78,6 +78,54 @@ def _display_name(ctrl_id: str) -> str:
     return ctrl_id.replace("_", " ").title()
 
 
+def _controls_from_range(ctrl_id, rng, value, flags) -> "list[Control]":
+    """Map a GetRange tuple and a Get result to Control objects.
+
+    ``rng`` is the (min, max, step, default, caps) tuple returned by
+    IAMVideoProcAmp/IAMCameraControl::GetRange; ``value``/``flags`` come from
+    ::Get (value may be None when the read failed). Emits the main int
+    control plus, when the caps flags advertise auto capability, a companion
+    "<id>_auto" bool control. Pure function; no COM access.
+    """
+    vmin, vmax, step, default, caps = rng
+    auto_capable = bool(caps & _FLAG_AUTO)
+    auto_on = bool(flags & _FLAG_AUTO)
+    controls = [Control(
+        id=ctrl_id,
+        name=_display_name(ctrl_id),
+        type="int",
+        min=int(vmin),
+        max=int(vmax),
+        step=int(step) if step else 1,
+        default=int(default),
+        value=int(value) if value is not None else None,
+        inactive=auto_capable and auto_on,
+    )]
+    if auto_capable:
+        controls.append(Control(
+            id=ctrl_id + "_auto",
+            name=_display_name(ctrl_id) + " Auto",
+            type="bool",
+            min=0,
+            max=1,
+            step=1,
+            value=1 if auto_on else 0,
+        ))
+    return controls
+
+
+def _fps_from_intervals(*intervals_100ns) -> "set[float]":
+    """Convert DirectShow frame intervals (100 ns units) to fps values.
+
+    Non-positive intervals (unset fields) are ignored. Pure function.
+    """
+    fps = set()
+    for interval in intervals_100ns:
+        if interval > 0:
+            fps.add(round(1e7 / interval, 2))
+    return fps
+
+
 def _cv2():
     try:
         import cv2
@@ -610,36 +658,14 @@ def _list_controls_impl(index):
             if prop_kind != kind:
                 continue
             try:
-                vmin, vmax, step, default, caps = iface.GetRange(prop)
+                rng = iface.GetRange(prop)
             except d.COMError:
                 continue
             try:
                 value, flags = iface.Get(prop)
             except d.COMError:
                 value, flags = None, 0
-            auto_capable = bool(caps & _FLAG_AUTO)
-            auto_on = bool(flags & _FLAG_AUTO)
-            controls.append(Control(
-                id=ctrl_id,
-                name=_display_name(ctrl_id),
-                type="int",
-                min=int(vmin),
-                max=int(vmax),
-                step=int(step) if step else 1,
-                default=int(default),
-                value=int(value) if value is not None else None,
-                inactive=auto_capable and auto_on,
-            ))
-            if auto_capable:
-                controls.append(Control(
-                    id=ctrl_id + "_auto",
-                    name=_display_name(ctrl_id) + " Auto",
-                    type="bool",
-                    min=0,
-                    max=1,
-                    step=1,
-                    value=1 if auto_on else 0,
-                ))
+            controls.extend(_controls_from_range(ctrl_id, rng, value, flags))
     return controls
 
 
@@ -760,10 +786,7 @@ def _parse_stream_cap(d, pmt, caps_buf):
         return None
     caps = ctypes.cast(
         caps_buf, ctypes.POINTER(d.VIDEO_STREAM_CONFIG_CAPS)).contents
-    fps = set()
-    for interval in (caps.MaxFrameInterval, caps.MinFrameInterval):
-        if interval > 0:
-            fps.add(round(1e7 / interval, 2))
+    fps = _fps_from_intervals(caps.MaxFrameInterval, caps.MinFrameInterval)
     return fourcc, width, height, fps
 
 

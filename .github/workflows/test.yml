@@ -1,0 +1,35 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      # Linux backend is stdlib-only; no install needed. Hardware tests
+      # skip themselves when no /dev/video* device is present.
+      - run: python -m unittest discover -s tests -v
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Installs comtypes + opencv-python (win32 environment markers).
+      - run: pip install -e .
+      # comtypes is present but no camera is attached: dshow unit tests run
+      # against stubs, comtypes-absent tests and V4L2 tests skip.
+      - run: python -m unittest discover -s tests -v

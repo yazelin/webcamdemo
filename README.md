@@ -99,6 +99,26 @@ with Camera() as cam:            # 不給 id 就用第一台相機
   4. `webcamdemo serve` 後開 <http://127.0.0.1:8600> — 應看到即時預覽。
   5. `webcamdemo set focus <值>`(或任一可寫控制項;Windows 後端的控制項 id 與 Linux 不同,先用 `webcamdemo controls` 查)— 畫面應有對應變化,`webcamdemo get` 讀回應為設定值。
 
+## 測試
+
+![test](https://github.com/yazelin/webcamdemo/actions/workflows/test.yml/badge.svg)
+
+```bash
+python3 -m unittest discover -s tests -v   # 全部測試(無相機也能跑,硬體測試自動 skip)
+python3 tests/smoke_test.py                # 實機冒煙測試(無相機時 SKIP,exit 0)
+```
+
+測試分四層,前兩層完全不碰硬體:
+
+| 層 | 檔案 | 說明 |
+|---|---|---|
+| 單元 | `test_model.py`、`test_backend_v4l2_unit.py`、`test_backend_dshow_unit.py` | 純邏輯:資料模型、V4L2 struct ABI/控制項名稱、DirectShow 控制表/GUID/cv2 串流層(以 stub 模擬 COM 與 cv2) |
+| 合約 | `test_cli.py`、`test_server_api.py` | CLI 與 HTTP API 行為:以 FakeCamera/FakeBackend 驗證輸出格式、錯誤路徑、擷取失敗(拔線)復原、無預設相機模式 |
+| 硬體(自動 skip) | `test_hardware_integration.py` | 唯一會開 `/dev/video*` 的檔案;無相機或裝置被占用(EBUSY)時逐項 skip,改動過的設定一律還原 |
+| 冒煙 | `smoke_test.py` | 對實機跑一遍完整流程的獨立腳本,不被 discover 收進上面三層 |
+
+CI(GitHub Actions)在 Linux(Python 3.10/3.12)與 Windows(3.12,有 comtypes 無相機)上跑同一條 `unittest discover` 指令。
+
 ## 授權
 
 MIT — 林亞澤 Yaze Lin

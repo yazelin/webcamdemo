@@ -423,13 +423,13 @@ def _sysfs_usb_ids(dev_path):
     return None
 
 
-def _find_xu_unit_id(usb_ids, guid):
+def _find_xu_unit_id(usb_ids, guid, base="/sys/bus/usb/devices"):
     """Walk USB config descriptors of the device with matching vid:pid and
     return the bUnitID of the VC Extension Unit carrying the given GUID."""
     if not usb_ids:
         return 0
     vid, pid = usb_ids.split(":")
-    for d in glob.glob("/sys/bus/usb/devices/*"):
+    for d in glob.glob(os.path.join(base, "*")):
         try:
             with open(os.path.join(d, "idVendor")) as f:
                 dvid = f.read().strip()
@@ -456,6 +456,11 @@ def _find_xu_unit_id(usb_ids, guid):
                     return blob[i + 3]
                 i += ln
     return 0
+
+
+def _is_jpeg(data):
+    """True if data starts with the JPEG SOI marker (0xFFD8)."""
+    return data[:2] == b"\xff\xd8"
 
 
 def _open_ok(path):
@@ -904,7 +909,7 @@ class Backend:
             raise RuntimeError("not streaming; call start_stream() first")
         for _ in range(2):
             data = self._dequeue_frame()
-            if data[:2] == b"\xff\xd8":
+            if _is_jpeg(data):
                 return data
         raise RuntimeError("camera produced no valid JPEG frame (bad SOI marker)")
 
