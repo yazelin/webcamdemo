@@ -2,6 +2,8 @@
 
 webcamdemo 是一個純 Python 的 webcam 工具,同一套程式提供三種用法:當 **library** 匯入(`with Camera() as cam: ...`)、當 **CLI** 操作(`webcamdemo set focus_absolute 120`)、或啟動內建 **web UI**(即時 MJPEG 預覽 + 拉桿即改參數)。Linux 走 V4L2、Windows 走 DirectShow,列舉出相機支援的全部控制項並可即時讀寫。
 
+> **姊妹專案** [visordemo](https://github.com/yazelin/visordemo) 用同一套 `Camera` 介面(context manager + `start_stream`/`read_*`/`set_control`)包 SensoPart VISOR 工業視覺感測器(走 TCP telegram 取像),消費端(如 [qc-station](https://github.com/ching-tech/qc-station))只要換 `camera_factory` 就能在 USB webcam 與工業相機間切換。
+
 ## 功能
 
 - **參數全列舉**:列出 v4l2 回報的全部控制項(亮度、對比、對焦、曝光、白平衡...),含範圍、預設值、目前值、選單選項與 inactive(反灰)狀態;另支援 Logitech 相機的隱藏 FOV(視野角)控制。
